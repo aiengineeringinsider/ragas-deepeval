@@ -98,14 +98,3 @@ local-eval-lab/
 ├── .github/workflows/eval.yml  unit job + LLM eval job (smoke on PR, full nightly)
 ├── Makefile  requirements.txt  pyproject.toml  .env.example
 ```
-
-## Honest limits
-
-* Scores from 1B to 3B judges are noisy estimates, not ground truth. Validate every
-  judge against human labels (`make judges`) before trusting it in a gate.
-* The human labels in `calibration_v1.jsonl` were written for teaching. Relabel a
-  sample yourself, and build a calibration set from your own system's outputs.
-* CPU inference is slow: a full RAGAS run on 30 items with seven metrics takes tens of
-  minutes on a laptop. Use `--limit` and `--metrics` while iterating.
-# ragas-deepeval
-# ragas-deepeval
