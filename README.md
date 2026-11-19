@@ -108,3 +108,4 @@ local-eval-lab/
 * CPU inference is slow: a full RAGAS run on 30 items with seven metrics takes tens of
   minutes on a laptop. Use `--limit` and `--metrics` while iterating.
 # ragas-deepeval
+# ragas-deepeval
