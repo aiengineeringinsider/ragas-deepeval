@@ -1,0 +1,15 @@
+[project]
+name = "local-eval-lab"
+version = "1.0.0"
+description = "RAG evaluation with RAGAS, DeepEval, and local Ollama judges"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "ollama: needs a running Ollama server with the lab models (deselect with -m 'not ollama')",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 110

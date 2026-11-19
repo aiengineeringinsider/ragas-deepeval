@@ -1,0 +1,70 @@
+name: eval
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 19 * * *"   # nightly full eval (02:17 WIB)
+  workflow_dispatch:
+
+jobs:
+  unit:
+    # Fast, deterministic, no model: runs on every PR in about a minute.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: python scripts/04_golden.py validate
+      - run: python -m pytest -m "not ollama" -q --junitxml=unit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: unit-results, path: unit.xml }
+
+  llm-eval:
+    # Real models on a CPU runner. Smoke subset on PRs, full set nightly.
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EVALLAB_GENERATOR: qwen2.5:3b
+      EVALLAB_JUDGE: qwen2.5:3b
+      EVALLAB_SMOKE: ${{ github.event_name == 'schedule' && '0' || '1' }}
+      DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+      OLLAMA_CONTEXT_LENGTH: "8192"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ hashFiles('.github/workflows/eval.yml') }}
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://localhost:11434/api/version && break; sleep 2; done
+          ollama pull qwen2.5:3b
+          ollama pull nomic-embed-text
+      - run: python scripts/02_ingest.py --reset
+      - name: DeepEval pytest suite
+        run: deepeval test run tests/eval/test_rag_quality.py
+      - name: Scored run + regression gate
+        run: |
+          LIMIT=$([ "$EVALLAB_SMOKE" = "1" ] && echo 8 || echo 0)
+          python scripts/11_full_run.py --label ci-${{ github.run_number }} --limit $LIMIT \
+            --ragas faithfulness,context_recall
+          REC=$(python -c "import json;print(json.load(open('results/latest_run.json'))['records_path'])")
+          python scripts/10_regression_gate.py --candidate "$REC"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: |
+            results/
+            ollama.log

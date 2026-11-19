@@ -1,0 +1,11 @@
+.venv/
+.chroma/
+results/
+__pycache__/
+.env
+.deepeval/
+*.sqlite
+.DS_Store
+.pytest_cache/
+*.pyc
+data/golden/candidates.jsonl
