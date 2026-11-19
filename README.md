@@ -54,6 +54,17 @@ python scripts/10_regression_gate.py --candidate results/run_<id>.jsonl --update
 python scripts/10_regression_gate.py --candidate results/run_<id>.jsonl                    # gate
 ```
 
+## Beyond single-turn RAG (Part V)
+
+```bash
+make testset   # RAGAS TestsetGenerator on local Ollama -> data/golden/testset_candidates.jsonl
+make traced    # DeepEval tracing: metrics per span (retriever, generator)
+make convo     # multi-turn conversations: retention check (+ --judge for DeepEval metrics)
+make agent     # tool-using agent: DeepEval ToolCorrectness + RAGAS ToolCallAccuracy
+make monitor   # free online checks, review sampling over a file of answers
+make redteam   # deterministic red-team probes (+ --deepteam for a local DeepTeam scan)
+```
+
 ## Platform
 
 ```bash
