@@ -107,3 +107,4 @@ local-eval-lab/
   sample yourself, and build a calibration set from your own system's outputs.
 * CPU inference is slow: a full RAGAS run on 30 items with seven metrics takes tens of
   minutes on a laptop. Use `--limit` and `--metrics` while iterating.
+# ragas-deepeval
