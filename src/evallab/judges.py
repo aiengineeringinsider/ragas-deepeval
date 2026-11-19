@@ -75,6 +75,27 @@ PAIRWISE_SCHEMA = {
 }
 
 
+RELEVANCE_PROMPT = """You check whether an ANSWER responds to the QUESTION that was asked.
+- Judge only whether it addresses what was asked. Do NOT judge whether it is correct;
+  a separate faithfulness check does that.
+- Citation markers like [1], shown arithmetic, and a short restatement of the
+  question are fine.
+- An answer about a different plan, product, number, or topic than the one asked
+  does NOT address the question.
+- "I don't have that information" does NOT address an answerable question.
+
+QUESTION: {question}
+ANSWER: {answer}
+
+Return JSON: {{"reason": "<one sentence>", "addresses_question": true|false}}"""
+
+RELEVANCE_SCHEMA = {
+    "type": "object",
+    "properties": {"reason": {"type": "string"}, "addresses_question": {"type": "boolean"}},
+    "required": ["reason", "addresses_question"],
+}
+
+
 @dataclass
 class Verdict:
     label: int | None          # 1 faithful, 0 not, None = unparseable
@@ -93,6 +114,20 @@ def judge_faithfulness(llm: ChatModel, question: str, context: str, answer: str,
     try:
         d = parse_json(r.text)
         return Verdict(int(bool(d["faithful"])), None, str(d.get("reason", "")), r.latency_s, r.text)
+    except (ValueError, KeyError, json.JSONDecodeError):
+        return Verdict(None, None, "unparseable", r.latency_s, r.text)
+
+
+def judge_relevance(llm: ChatModel, question: str, answer: str,
+                    seed: int | None = 42) -> Verdict:
+    """Single-call, binary relevance judge (one decision, not a statement split)."""
+    msg = RELEVANCE_PROMPT.format(question=question, answer=answer)
+    r = llm.chat([{"role": "user", "content": msg}], json_schema=RELEVANCE_SCHEMA,
+                 temperature=0.0, seed=seed)
+    try:
+        d = parse_json(r.text)
+        return Verdict(int(bool(d["addresses_question"])), None, str(d.get("reason", "")),
+                       r.latency_s, r.text)
     except (ValueError, KeyError, json.JSONDecodeError):
         return Verdict(None, None, "unparseable", r.latency_s, r.text)
 

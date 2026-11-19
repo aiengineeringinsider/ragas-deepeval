@@ -43,6 +43,8 @@ class Settings:
     chunk_size: int = int(_env("EVALLAB_CHUNK_SIZE", "700"))
     chunk_overlap: int = int(_env("EVALLAB_CHUNK_OVERLAP", "100"))
     top_k: int = int(_env("EVALLAB_TOP_K", "4"))
+    # "hybrid" fuses dense (embedding) and BM25 keyword rankings; "dense" is embeddings only.
+    retrieval_mode: str = _env("EVALLAB_RETRIEVAL", "hybrid")
 
     # Data and results
     corpus_dir: Path = PROJECT_ROOT / "data" / "corpus"

@@ -59,6 +59,13 @@ class ChromaStore:
         )
         return len(chunks)
 
+    def all_chunks(self) -> list[RetrievedChunk]:
+        """Every stored chunk (score 0.0). Used to build the BM25 index for hybrid search."""
+        res = self._col.get(include=["documents", "metadatas"])
+        return [RetrievedChunk(cid, doc, (meta or {}).get("source", ""),
+                               (meta or {}).get("section", ""), 0.0)
+                for cid, doc, meta in zip(res["ids"], res["documents"], res["metadatas"])]
+
     def search(self, query: str, k: int | None = None) -> list[RetrievedChunk]:
         k = k or settings.top_k
         res = self._col.query(query_embeddings=[self.embedder.embed_query(query)],

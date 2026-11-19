@@ -188,3 +188,66 @@ def make_numeric_grounding_metric(threshold: float = 1.0):
             return "Numeric Grounding"
 
     return NumericGroundingMetric()
+
+
+def _numbered(contexts) -> str:
+    return "\n\n".join(f"[{i}] {c}" for i, c in enumerate(contexts or [], start=1))
+
+
+def _binary_judge_metric(name: str, judge_fn, llm, needs_context: bool):
+    """Wrap a single-call binary judge from judges.py as a DeepEval metric.
+
+    Score is 1.0 or 0.0. An unparseable verdict scores 0.0 and says so in the
+    reason, so a broken judge fails loudly instead of passing silently.
+    """
+    from deepeval.metrics import BaseMetric
+    from deepeval.test_case import LLMTestCase
+
+    class _BinaryJudgeMetric(BaseMetric):
+        def __init__(self):
+            self.threshold = 1.0
+            self.include_reason = True
+            self.async_mode = False
+            self.strict_mode = True
+            self.verbose_mode = False
+            self.evaluation_model = getattr(llm, "model", "judge")
+
+        def measure(self, test_case: LLMTestCase, *args, **kwargs) -> float:
+            if needs_context:
+                v = judge_fn(llm, test_case.input or "", _numbered(test_case.retrieval_context),
+                             test_case.actual_output or "")
+            else:
+                v = judge_fn(llm, test_case.input or "", test_case.actual_output or "")
+            self.score = float(v.label or 0)
+            self.success = self.score >= self.threshold
+            self.reason = v.reason if v.label is not None else f"unparseable judge output: {v.raw[:200]}"
+            return self.score
+
+        async def a_measure(self, test_case: LLMTestCase, *args, **kwargs) -> float:
+            return self.measure(test_case)
+
+        def is_successful(self) -> bool:
+            return bool(self.success)
+
+        @property
+        def __name__(self):
+            return name
+
+    return _BinaryJudgeMetric()
+
+
+def make_validated_faithfulness_metric(llm):
+    """The single-call faithfulness judge validated against 40 human labels in
+    Modules 9 and 10 (qwen2.5:3b: kappa 0.80, hallucination recall 0.95)."""
+    from .judges import judge_faithfulness
+
+    return _binary_judge_metric("Faithfulness (validated judge)", judge_faithfulness, llm,
+                                needs_context=True)
+
+
+def make_relevance_metric(llm):
+    """Single-call binary relevance judge: does the answer address the question?"""
+    from .judges import judge_relevance
+
+    return _binary_judge_metric("Addresses Question", judge_relevance, llm, needs_context=False)
+

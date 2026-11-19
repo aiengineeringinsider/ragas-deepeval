@@ -11,6 +11,7 @@ import time
 from dataclasses import asdict, dataclass, field
 
 from .config import settings
+from .lexical import BM25, rrf
 from .llm import ChatModel
 from .vectorstore import ChromaStore, RetrievedChunk
 
@@ -18,9 +19,13 @@ SYSTEM_PROMPT = """You are the Helios Cloud Storage support assistant.
 Answer ONLY from the numbered context passages. Rules:
 1. If the context does not contain the answer, reply exactly:
    "I don't have that information in the Helios documentation."
-2. Cite the passages you used with bracketed numbers, e.g. [1] or [2][3].
-3. Show the arithmetic for any price, credit, or date calculation.
-4. Be concise: at most 4 sentences."""
+   Do not add citations to that sentence.
+2. Use the figures for the plan, region, or severity the question names. Never answer
+   with another plan's numbers; if the named plan's figures are missing, use rule 1.
+3. Cite the passages you used with bracketed numbers, e.g. [1] or [2][3].
+4. Show the arithmetic for any price, credit, or date calculation, and apply every
+   rule in the passages that changes the result (minimums, caps, exclusions).
+5. Be concise: at most 4 sentences."""
 
 REFUSAL = "I don't have that information in the Helios documentation."
 
@@ -53,16 +58,37 @@ def format_context(chunks: list[RetrievedChunk]) -> str:
 
 class RAGPipeline:
     def __init__(self, store: ChromaStore, llm: ChatModel, top_k: int | None = None,
-                 min_score: float = 0.0):
+                 min_score: float = 0.0, mode: str | None = None):
         self.store = store
         self.llm = llm
         self.top_k = top_k or settings.top_k
         self.min_score = min_score  # drop very weak matches before generation
+        self.mode = mode or settings.retrieval_mode
+        self._bm25: BM25 | None = None
+        self._chunks: list[RetrievedChunk] = []
+
+    def _lexical_index(self) -> tuple[BM25, list[RetrievedChunk]]:
+        # Built lazily and once: the corpus only changes when you re-ingest.
+        if self._bm25 is None or len(self._chunks) != self.store.count():
+            self._chunks = self.store.all_chunks()
+            self._bm25 = BM25([c.text for c in self._chunks])
+        return self._bm25, self._chunks
 
     def retrieve(self, question: str) -> tuple[list[RetrievedChunk], float]:
         t0 = time.perf_counter()
-        hits = [h for h in self.store.search(question, self.top_k) if h.score >= self.min_score]
-        return hits, time.perf_counter() - t0
+        if self.mode == "dense":
+            hits = [h for h in self.store.search(question, self.top_k)
+                    if h.score >= self.min_score]
+            return hits, time.perf_counter() - t0
+        # Hybrid: a wider dense candidate list, a BM25 list, fused by reciprocal rank.
+        dense = [h for h in self.store.search(question, self.top_k * 3)
+                 if h.score >= self.min_score]
+        bm25, chunks = self._lexical_index()
+        lexical = [chunks[i] for i in bm25.rank(question, self.top_k * 3)]
+        by_id = {h.chunk_id: h for h in lexical}
+        by_id.update({h.chunk_id: h for h in dense})  # keep dense cosine scores when present
+        fused = rrf([[h.chunk_id for h in dense], [h.chunk_id for h in lexical]])
+        return [by_id[i] for i in fused[: self.top_k]], time.perf_counter() - t0
 
     def answer(self, question: str) -> RAGResult:
         hits, r_lat = self.retrieve(question)

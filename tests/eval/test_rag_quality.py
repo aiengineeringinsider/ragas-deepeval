@@ -7,6 +7,16 @@ Run with either:
 Each golden item becomes one parametrized test. The RAG system generates the
 answer at test time (Golden -> LLMTestCase), and assert_test fails the test if
 any metric is below its threshold.
+
+What blocks a merge, and why: only instruments we validated.
+  * deterministic: refusal correctness, numeric grounding, citation validity
+  * LLM: the single-call faithfulness judge validated against 40 human labels
+    (Module 9: qwen2.5:3b kappa 0.80), and a single-call relevance judge.
+DeepEval's built-in AnswerRelevancy and Faithfulness split answers into
+statements and judge each one. With a 3B judge that failed correct answers in
+the lab (8 of 8 tests failed), so they run in the nightly report
+(scripts/06_deepeval_eval.py), not in this gate. Swap them back in when you
+have a judge you have validated for them.
 """
 import os
 
@@ -16,12 +26,12 @@ os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "YES")
 
 from deepeval import assert_test  # noqa: E402
 from deepeval.dataset import EvaluationDataset, Golden  # noqa: E402
-from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric  # noqa: E402
 from deepeval.test_case import LLMTestCase  # noqa: E402
 
 from evallab.config import settings  # noqa: E402
-from evallab.custom_metrics import make_numeric_grounding_metric, refusal_correctness  # noqa: E402
-from evallab.deepeval_eval import make_judge, refusal_geval  # noqa: E402
+from evallab.custom_metrics import (citation_validity, make_numeric_grounding_metric,  # noqa: E402
+                                    make_relevance_metric, make_validated_faithfulness_metric,
+                                    refusal_correctness)
 from evallab.golden import load_golden  # noqa: E402
 
 SMOKE = os.getenv("EVALLAB_SMOKE", "1") == "1"   # CI default: a fast, representative subset
@@ -48,7 +58,9 @@ def rag():
 
 @pytest.fixture(scope="session")
 def judge():
-    return make_judge(settings.judge_model)
+    from evallab.llm import OllamaChat
+
+    return OllamaChat(settings.judge_model)
 
 
 @pytest.mark.ollama
@@ -63,16 +75,19 @@ def test_rag_answer_quality(golden: Golden, rag, judge):
         retrieval_context=result.contexts,
         completion_time=result.total_latency_s,
     )
-    # Deterministic gate first: cheap and exact.
+    # Deterministic gates first: cheap, exact, and they never drift.
     assert refusal_correctness(result.answer, category) == 1.0, (
         f"refusal behaviour wrong for {category}: {result.answer!r}")
 
     if category == "unanswerable":
-        metrics = [refusal_geval(judge, threshold=0.7)]
+        # The refusal itself is checked above; here: no invented facts.
+        metrics = [make_validated_faithfulness_metric(judge)]
     else:
+        assert citation_validity(result.answer, len(result.contexts)) == 1.0, (
+            f"answer cites a passage that does not exist or cites nothing: {result.answer!r}")
         metrics = [
-            FaithfulnessMetric(threshold=0.7, model=judge, async_mode=False),
-            AnswerRelevancyMetric(threshold=0.7, model=judge, async_mode=False),
             make_numeric_grounding_metric(threshold=1.0),
+            make_validated_faithfulness_metric(judge),
+            make_relevance_metric(judge),
         ]
     assert_test(test_case, metrics, run_async=False)

@@ -70,18 +70,28 @@ def correctness_geval(judge, threshold: float = 0.6):
 
 
 def refusal_geval(judge, threshold: float = 0.7):
-    """Did the assistant refuse exactly when it should have?"""
+    """Did the assistant refuse exactly when it should have?
+
+    Explicit evaluation_steps, not `criteria` alone: with criteria only, GEval asks
+    the judge to write its own steps, and a 3B judge wrote a wrong one in the lab
+    ("the expected output contains a factual statement which should be declined"),
+    scoring two correct refusals 0.2 and 0.0.
+    """
     from deepeval.metrics import GEval
     from deepeval.test_case import SingleTurnParams
 
     return GEval(
         name="Appropriate Refusal",
-        criteria=(
-            "If 'expected output' says the documentation does not contain the answer, the "
-            "'actual output' must decline to answer and must not invent facts. If 'expected "
-            "output' contains a real answer, the 'actual output' must NOT refuse."
-        ),
-        evaluation_params=[SingleTurnParams.ACTUAL_OUTPUT, SingleTurnParams.EXPECTED_OUTPUT],
+        evaluation_steps=[
+            "Decide from 'expected output' whether the question is answerable: it is "
+            "unanswerable if 'expected output' says the documentation does not contain the answer.",
+            "If unanswerable: the 'actual output' passes when it declines to answer and states "
+            "no facts about the question's subject.",
+            "If answerable: the 'actual output' fails when it refuses or says it lacks the information.",
+            "Ignore citation markers like [1] and differences in wording.",
+        ],
+        evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT,
+                           SingleTurnParams.EXPECTED_OUTPUT],
         model=judge, threshold=threshold, async_mode=False,
     )
 
