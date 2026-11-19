@@ -24,3 +24,11 @@ test:     ; $(PY) -m pytest -m "not ollama" -q
 test-eval:; deepeval test run tests/eval/test_rag_quality.py
 api:      ; uvicorn api.main:app --reload --port 8000
 dash:     ; streamlit run dashboard/app.py
+
+# Part V
+testset:  ; $(PY) scripts/12_testset.py --size 12
+traced:   ; $(PY) scripts/13_traced_eval.py
+convo:    ; $(PY) scripts/14_conversations.py
+agent:    ; $(PY) scripts/15_agent_eval.py
+monitor:  ; $(PY) scripts/16_monitor.py --records $(RESP)
+redteam:  ; $(PY) scripts/17_redteam.py
